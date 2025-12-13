@@ -33,7 +33,7 @@ function App() {
   const [history, setHistory] = useState<CodeHistory[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
   const [redeemCode, setRedeemCode] = useState("");
-  const [pointsToGenerate, setPointsToGenerate] = useState(100);
+  const [pointsToGenerate, setPointsToGenerate] = useState(1);
   const [authStarted, setAuthStarted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [authInProgress, setAuthInProgress] = useState(false);
@@ -254,9 +254,10 @@ function App() {
       setUser((prev) => (prev ? { ...prev, balance: data.balance } : prev));
       setRedeemCode("");
       await loadLeaderboard();
+      const candiesText = `🍬: ${data.balance}`;
       setModal({
         title: "Успех",
-        message: data.message ? `${data.message} Баланс: ${data.balance}` : `Баланс: ${data.balance}`,
+        message: data.message ? `${data.message} ${candiesText}` : candiesText,
         type: "success"
       });
     } catch (err) {
@@ -283,7 +284,7 @@ function App() {
       await loadHistory();
       setModal({
         title: "Код создан",
-        message: `Код: ${data.code} (+${data.points}), истекает: ${new Date(data.expiresAt).toLocaleString()}`,
+        message: `Код: ${data.code} (+🍬${data.points}), истекает: ${new Date(data.expiresAt).toLocaleString()}`,
         type: "success"
       });
     } catch (err) {
@@ -317,7 +318,7 @@ function App() {
             {user.photo_url && <img src={user.photo_url} alt="avatar" width={64} height={64} />}
             <div>
               <div className="user-name">{displayName(user)}</div>
-              <div className="muted">Баланс: {user.balance}</div>
+              <div className="muted">🍬 {user.balance}</div>
               <div className="muted">{user.role === "admin" ? "Админ" : "Клиент"}</div>
               {config?.tokenTtlSeconds ? <div className="muted">TTL токена: {config.tokenTtlSeconds}s</div> : null}
             </div>

@@ -29,7 +29,7 @@ export function ClientPage({ redeemCode, onRedeemCodeChange, onRedeem, busy, lea
 
       <section className="card">
         <div className="card-header">
-          <h2>Топ 100 по баллам</h2>
+          <h2>Список участников (с леденцами)</h2>
           <div
             className={`ws-indicator ${wsConnected ? "connected" : "disconnected"}`}
             title={wsConnected ? "WS подключен" : "WS нет подключения"}
@@ -46,7 +46,7 @@ export function ClientPage({ redeemCode, onRedeemCodeChange, onRedeem, busy, lea
                   <div className="user-name">
                     {item.username ? `@${item.username}` : `${item.firstName ?? ""} ${item.lastName ?? ""}`.trim()}
                   </div>
-                  <div className="muted">Баланс: {item.balance}</div>
+                  <div className="muted">🍬 {item.balance}</div>
                 </div>
               </li>
             ))}

@@ -130,7 +130,7 @@ public sealed class CodeService(UcodeDbContext dbContext) : ICodeService
             .ToListAsync(ct);
     }
 
-    private static string GenerateCode(int length = 8)
+    private static string GenerateCode(int length = 5)
     {
         var chars = new char[length];
         for (var i = 0; i < length; i++)
