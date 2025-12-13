@@ -1,0 +1,17 @@
+@Ucode.Backend_HostAddress = http://localhost:5001
+
+### Telegram WebApp auth
+POST {{Ucode.Backend_HostAddress}}/auth/telegram
+Content-Type: application/json
+
+{
+  "initData": "query_string_from_telegram"
+}
+
+### Current user (requires Bearer token)
+@access_token = REPLACE_ME
+GET {{Ucode.Backend_HostAddress}}/auth/me
+Authorization: Bearer {{access_token}}
+Accept: application/json
+
+###
