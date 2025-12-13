@@ -9,10 +9,10 @@ using Ucode.Backend.Data;
 
 #nullable disable
 
-namespace Ucode.Backend.Data.Migrations
+namespace Ucode.Backend.Migrations
 {
     [DbContext(typeof(UcodeDbContext))]
-    [Migration("20251213083649_InitialCreate")]
+    [Migration("20251213083732_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />

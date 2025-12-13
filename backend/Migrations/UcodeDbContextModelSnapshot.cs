@@ -2,21 +2,18 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Ucode.Backend.Data;
 
 #nullable disable
 
-namespace Ucode.Backend.Data.Migrations
+namespace Ucode.Backend.Migrations
 {
     [DbContext(typeof(UcodeDbContext))]
-    [Migration("20251213012543_AddCodesAndBalances")]
-    partial class AddCodesAndBalances
+    partial class UcodeDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -48,6 +45,7 @@ namespace Ucode.Backend.Data.Migrations
                         .HasColumnType("integer");
 
                     b.Property<bool>("Used")
+                        .IsConcurrencyToken()
                         .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset?>("UsedAt")
