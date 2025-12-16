@@ -1,13 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import ReconnectingWebSocket from "reconnecting-websocket";
-import { AdminPage } from "./pages/admin/AdminPage";
-import { ClientPage } from "./pages/client/ClientPage";
-import { LoadingPage } from "./pages/LoadingPage";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBox } from "./components/ErrorBox";
 import { Modal, ModalState } from "./components/Modal";
+import { LoadingPage } from "./pages/LoadingPage";
 import { toWsUrl } from "./utils/ws";
 import { dataCache } from "./utils/cache";
 import { ApiConfig, AppUser, AuthResponse, CodeHistory, LeaderboardItem } from "./types";
+import { sendDiag } from "./utils/diag";
+
+// Lazy loading компонентов для уменьшения initial bundle
+const AdminPage = lazy(() => import("./pages/admin/AdminPage").then(m => ({ default: m.AdminPage })));
+const ClientPage = lazy(() => import("./pages/client/ClientPage").then(m => ({ default: m.ClientPage })));
+
+// Динамический импорт WebSocket только когда он нужен
+let ReconnectingWebSocket: typeof import("reconnecting-websocket").default | null = null;
+const loadWebSocket = async () => {
+  if (!ReconnectingWebSocket) {
+    const module = await import("reconnecting-websocket");
+    ReconnectingWebSocket = module.default;
+  }
+  return ReconnectingWebSocket;
+};
 
 const apiBase = import.meta.env.VITE_API_BASE ?? "/api";
 const wsPath = `${(import.meta.env.VITE_API_BASE ?? "/api").replace(/\/$/, "")}/ws/leaderboard`;
@@ -45,7 +57,7 @@ function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [loading, setLoading] = useState({ profile: false, history: false, leaderboard: false });
   const refreshTimer = useRef<number | null>(null);
-  const wsRef = useRef<ReconnectingWebSocket | null>(null);
+  const wsRef = useRef<any>(null);
 
   const logError = (msg: string) => {
     setErrors((prev) => [...prev.slice(-4), msg]);
@@ -116,12 +128,15 @@ function App() {
         const tgInitData = tg.initData;
         if (tgInitData) {
           setInitData(tgInitData);
+          sendDiag("tg-init-ok");
         } else {
           logError("initData не найдено. Откройте как Telegram WebApp.");
+          sendDiag("tg-initdata-missing");
         }
       } catch (err) {
         console.error("Telegram init failed", err);
         logError("Ошибка инициализации Telegram WebApp");
+        sendDiag("tg-init-failed", err instanceof Error ? err.message : "unknown");
       }
     };
     initTelegram();
@@ -151,11 +166,11 @@ function App() {
     };
 
     const updateViewport = () => {
-      if (tg?.viewportHeight) {
-        setViewportVar(tg.stableViewportHeight || tg.viewportHeight);
-      } else {
-        setViewportVar(window.innerHeight);
-      }
+        if (tg?.viewportHeight) {
+          setViewportVar(tg.stableViewportHeight || tg.viewportHeight);
+        } else {
+          setViewportVar(window.innerHeight);
+        }
     };
 
     if (tg) {
@@ -215,7 +230,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Откладываем подключение WS до авторизации и получения токена
+    // Откладываем подключение WS до авторизации и загрузку библиотеки
     if (!user || !token) {
       wsRef.current?.close();
       wsRef.current = null;
@@ -224,10 +239,12 @@ function App() {
     }
 
     let mounted = true;
-    const connectTimer = window.setTimeout(() => {
+    const connectTimer = window.setTimeout(async () => {
       if (!mounted) return;
       try {
-        const socket = new ReconnectingWebSocket(toWsUrl(wsPath), [], {
+        // Динамически загружаем WebSocket только когда авторизованы
+        const WS = await loadWebSocket();
+        const socket = new WS(toWsUrl(wsPath), [], {
           WebSocket: window.WebSocket,
           maxRetries: 10,
           reconnectInterval: 1500,
@@ -342,10 +359,12 @@ function App() {
         if (csrf) setCsrfToken(csrf);
       }
       await fetchProfile(data.token);
+      sendDiag("auth-ok", undefined, { exp: data.expiresAt });
       return data.token;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       logError(msg);
+      sendDiag("auth-error", msg);
       return null;
     } finally {
       setAuthInProgress(false);
@@ -400,6 +419,7 @@ function App() {
         jobs.push(loadHistory(overrideToken ?? token));
       }
       await Promise.allSettled(jobs);
+      sendDiag("profile-ok");
     } finally {
       updateLoading("profile", false);
     }
@@ -533,26 +553,29 @@ function App() {
         </section>
       )}
 
-      {user &&
-        (user.role === "admin" ? (
-          <AdminPage
-            pointsToGenerate={pointsToGenerate}
-            onPointsChange={setPointsToGenerate}
-            onGenerate={generateCode}
-            busy={busy}
-            history={history}
-            wsConnected={wsConnected}
-          />
-        ) : (
-          <ClientPage
-            redeemCode={redeemCode}
-            onRedeemCodeChange={setRedeemCode}
-            onRedeem={redeem}
-            busy={busy}
-            leaderboard={leaderboard}
-            wsConnected={wsConnected}
-          />
-        ))}
+      {user && (
+        <Suspense fallback={<LoadingPage subtitle="Загрузка компонента..." />}>
+          {user.role === "admin" ? (
+            <AdminPage
+              pointsToGenerate={pointsToGenerate}
+              onPointsChange={setPointsToGenerate}
+              onGenerate={generateCode}
+              busy={busy}
+              history={history}
+              wsConnected={wsConnected}
+            />
+          ) : (
+            <ClientPage
+              redeemCode={redeemCode}
+              onRedeemCodeChange={setRedeemCode}
+              onRedeem={redeem}
+              busy={busy}
+              leaderboard={leaderboard}
+              wsConnected={wsConnected}
+            />
+          )}
+        </Suspense>
+      )}
     </div>
   );
 }

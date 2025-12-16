@@ -15,6 +15,7 @@ public static class WebApplicationExtensions
             app.MapOpenApi();
         }
 
+        app.UseResponseCompression();
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseWebSockets();

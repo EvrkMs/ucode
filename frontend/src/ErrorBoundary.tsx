@@ -1,4 +1,5 @@
 import React from "react";
+import { sendDiag } from "./utils/diag";
 
 type Props = {
   children: React.ReactNode;
@@ -22,6 +23,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
     // Логируем в консоль; при необходимости сюда можно добавить отправку на бэкенд
     console.error("React error boundary", error, info);
+    sendDiag("react-error", error.message, { componentStack: info.componentStack });
   }
 
   handleReload = () => {

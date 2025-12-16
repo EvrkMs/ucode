@@ -1,5 +1,7 @@
 // Pre-React bootstrap: checks build version and cleans client caches if версия не совпадает.
 // This runs before main.tsx is imported, чтобы не подгружать устаревшие бандлы.
+import { sendDiag } from "./utils/diag";
+
 declare const __APP_VERSION__: string | undefined;
 
 const VERSION =
@@ -16,12 +18,19 @@ const ensureFreshVersion = () => {
     }
   } catch (err) {
     console.error("Version check failed", err);
+    sendDiag("version-check-failed", (err as Error)?.message);
   }
 };
 
 const boot = async () => {
   ensureFreshVersion();
-  await import("./main");
+  try {
+    await import("./main");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "main import failed";
+    sendDiag("main-import-failed", msg);
+    throw err;
+  }
 };
 
 void boot();

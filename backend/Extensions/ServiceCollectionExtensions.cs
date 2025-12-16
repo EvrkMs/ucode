@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using System.IO.Compression;
 using System.Text;
 using Ucode.Backend.Data;
 using Ucode.Backend.Middleware;
@@ -17,6 +19,30 @@ public static class ServiceCollectionExtensions
         services.AddMemoryCache();
         services.Configure<TelegramOptions>(configuration.GetSection("Telegram"));
         services.Configure<JwtOptions>(configuration.GetSection("Jwt"));
+
+        services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<BrotliCompressionProvider>();
+            options.Providers.Add<GzipCompressionProvider>();
+            options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[]
+            {
+                "application/json",
+                "application/javascript",
+                "application/wasm",
+                "image/svg+xml"
+            });
+        });
+
+        services.Configure<BrotliCompressionProviderOptions>(options =>
+        {
+            options.Level = CompressionLevel.Fastest;
+        });
+
+        services.Configure<GzipCompressionProviderOptions>(options =>
+        {
+            options.Level = CompressionLevel.Fastest;
+        });
 
         services.AddDbContext<UcodeDbContext>(options =>
         {
