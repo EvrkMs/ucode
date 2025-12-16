@@ -18,7 +18,7 @@ public static class WebApplicationExtensions
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseWebSockets();
-        app.UseMiddleware<CsrfMiddleware>();
+        // CSRF middleware отключён, так как фронт работает внутри Telegram WebApp и токен не требуется.
         app.Use(async (context, next) =>
         {
             var path = context.Request.Path.Value?.ToLowerInvariant() ?? string.Empty;
