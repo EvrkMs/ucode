@@ -27,10 +27,18 @@ public sealed class LeaderboardNotifier(IServiceScopeFactory scopeFactory, ILogg
         _sockets[id] = socket;
         _logger.LogDebug("Leaderboard WS connected: {Id}", id);
 
-        // отправляем начальные данные
-        await SendLeaderboardAsync(socket, ct);
-
-        await ListenAsync(id, socket, ct);
+        try
+        {
+            // отправляем начальные данные
+            await SendLeaderboardAsync(socket, ct);
+            await ListenAsync(id, socket, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WS session ended with error for {Id}", id);
+            _sockets.TryRemove(id, out _);
+            await SafeCloseAsync(socket, ct);
+        }
     }
 
     public async Task BroadcastAsync(CancellationToken ct = default)
@@ -85,6 +93,14 @@ public sealed class LeaderboardNotifier(IServiceScopeFactory scopeFactory, ILogg
         catch (OperationCanceledException)
         {
             // ignore
+        }
+        catch (WebSocketException ex)
+        {
+            _logger.LogDebug(ex, "WS receive failed for {Id}", id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "WS listen error for {Id}", id);
         }
         finally
         {

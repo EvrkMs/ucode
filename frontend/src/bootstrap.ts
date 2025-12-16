@@ -7,34 +7,20 @@ const VERSION =
   (typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev");
 const VERSION_KEY = "ucode:buildVersion";
 
-const clearClientCaches = async () => {
+const ensureFreshVersion = () => {
   try {
-    if ("caches" in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    }
-    sessionStorage.clear();
-    localStorage.clear();
-    if ("serviceWorker" in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((r) => r.unregister()));
+    const saved = localStorage.getItem(VERSION_KEY);
+    if (saved !== VERSION) {
+      // Просто обновляем версию; кеш/сложная очистка убраны, чтобы не блокировать iOS WebView.
+      localStorage.setItem(VERSION_KEY, VERSION);
     }
   } catch (err) {
-    // Логируем, но не блокируем загрузку приложения
-    console.error("Cache cleanup failed", err);
+    console.error("Version check failed", err);
   }
-};
-
-const ensureFreshVersion = async () => {
-  const saved = localStorage.getItem(VERSION_KEY);
-  if (saved && saved !== VERSION) {
-    await clearClientCaches();
-  }
-  localStorage.setItem(VERSION_KEY, VERSION);
 };
 
 const boot = async () => {
-  await ensureFreshVersion();
+  ensureFreshVersion();
   await import("./main");
 };
 

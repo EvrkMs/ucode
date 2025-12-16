@@ -13,7 +13,9 @@ public sealed class CsrfMiddleware(RequestDelegate next, ILogger<CsrfMiddleware>
     private static readonly HashSet<string> ExcludedPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/auth/telegram",
-        "/api/auth/telegram"
+        "/api/auth/telegram",
+        "/diag/client",
+        "/api/diag/client"
     };
 
     public async Task InvokeAsync(HttpContext context)

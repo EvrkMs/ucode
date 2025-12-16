@@ -61,7 +61,8 @@ public static class ServiceCollectionExtensions
                     ValidIssuer = jwtOptions.Issuer,
                     ValidAudience = jwtOptions.Audience,
                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey)),
-                    RoleClaimType = "role"
+                    RoleClaimType = "role",
+                    ClockSkew = TimeSpan.FromSeconds(30) // допуск на сдвиг времени, чтобы новый токен не ловил 401
                 };
 
                 options.Events = JwtEventsFactory.Create();

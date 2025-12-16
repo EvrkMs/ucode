@@ -56,10 +56,24 @@ function App() {
   };
 
   const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 15000) => {
+    if (typeof AbortController === "undefined") {
+      return fetch(url, options);
+    }
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), timeout);
+    const timer = window.setTimeout(() => {
+      try {
+        controller.abort();
+      } catch (err) {
+        console.warn("Abort failed", err);
+      }
+    }, timeout);
     try {
       return await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        console.warn("Request timed out or aborted", url);
+      }
+      throw err;
     } finally {
       clearTimeout(timer);
     }
@@ -89,12 +103,31 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const tgInitData = window.Telegram?.WebApp?.initData;
-    if (tgInitData) {
-      setInitData(tgInitData);
-    } else {
-      logError("initData не найдено. Откройте как Telegram WebApp.");
-    }
+    let mounted = true;
+    const initTelegram = () => {
+      const tg = window.Telegram?.WebApp;
+      if (!tg) {
+        if (mounted) window.setTimeout(initTelegram, 100);
+        return;
+      }
+      try {
+        tg.ready();
+        tg.expand();
+        const tgInitData = tg.initData;
+        if (tgInitData) {
+          setInitData(tgInitData);
+        } else {
+          logError("initData не найдено. Откройте как Telegram WebApp.");
+        }
+      } catch (err) {
+        console.error("Telegram init failed", err);
+        logError("Ошибка инициализации Telegram WebApp");
+      }
+    };
+    initTelegram();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -190,32 +223,48 @@ function App() {
       return;
     }
 
+    let mounted = true;
     const connectTimer = window.setTimeout(() => {
-      const socket = new ReconnectingWebSocket(toWsUrl(wsPath), [], {
-        WebSocket: window.WebSocket,
-        maxRetries: 20,
-        reconnectInterval: 2000,
-        connectionTimeout: 10000,
-        maxReconnectionDelay: 10000,
-        minReconnectionDelay: 1000
-      });
-      wsRef.current = socket;
+      if (!mounted) return;
+      try {
+        const socket = new ReconnectingWebSocket(toWsUrl(wsPath), [], {
+          WebSocket: window.WebSocket,
+          maxRetries: 10,
+          reconnectInterval: 1500,
+          connectionTimeout: 5000,
+          maxReconnectionDelay: 5000,
+          minReconnectionDelay: 500,
+          debug: false
+        });
+        wsRef.current = socket;
 
-      socket.addEventListener("message", (event) => {
-        try {
-          const data = JSON.parse(event.data as string) as LeaderboardItem[];
-          setLeaderboard(data);
-        } catch {
-          // ignore malformed messages
-        }
-      });
+        socket.addEventListener("message", (event) => {
+          if (!mounted) return;
+          try {
+            const data = JSON.parse(event.data as string) as LeaderboardItem[];
+            setLeaderboard(data);
+          } catch {
+            // ignore malformed messages
+          }
+        });
 
-      socket.addEventListener("open", () => setWsConnected(true));
-      socket.addEventListener("close", () => setWsConnected(false));
-      socket.addEventListener("error", () => setWsConnected(false));
-    }, 300);
+        socket.addEventListener("open", () => {
+          if (mounted) setWsConnected(true);
+        });
+        socket.addEventListener("close", () => {
+          if (mounted) setWsConnected(false);
+        });
+        socket.addEventListener("error", () => {
+          if (mounted) setWsConnected(false);
+        });
+      } catch (err) {
+        console.error("WS init failed", err);
+        if (mounted) setWsConnected(false);
+      }
+    }, 500);
 
     return () => {
+      mounted = false;
       clearTimeout(connectTimer);
       wsRef.current?.close();
       wsRef.current = null;
@@ -332,7 +381,15 @@ function App() {
     try {
       const headers = new Headers();
       headers.set("Authorization", `Bearer ${overrideToken ?? token}`);
-      const res = await fetchWithTimeout(`${apiBase}/auth/me`, { headers });
+      let res = await fetchWithTimeout(`${apiBase}/auth/me`, { headers });
+      if (res.status === 401 && initData) {
+        const newToken = await fetchToken();
+        if (newToken) {
+          const retryHeaders = new Headers();
+          retryHeaders.set("Authorization", `Bearer ${newToken}`);
+          res = await fetchWithTimeout(`${apiBase}/auth/me`, { headers: retryHeaders });
+        }
+      }
       if (!res.ok) {
         throw new Error(`Profile fetch failed (${res.status})`);
       }

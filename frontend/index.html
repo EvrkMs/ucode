@@ -4,11 +4,48 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ucode</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <!-- Telegram WebApp SDK: ensures window.Telegram.WebApp is available inside Telegram -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+      (function () {
+        const endpoint = "/api/diag/client";
+        const start = performance.now();
+        const ua = navigator.userAgent;
+        const send = (type, detail) => {
+          const payload = JSON.stringify({ type, detail, ua, t: Math.round(performance.now() - start) });
+          try {
+            if (navigator.sendBeacon) {
+              const blob = new Blob([payload], { type: "application/json" });
+              navigator.sendBeacon(endpoint, blob);
+              return;
+            }
+            fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: payload,
+              keepalive: true
+            }).catch(() => {});
+          } catch {
+            // ignore
+          }
+        };
+
+        window.addEventListener("error", (e) => send("error", e.message || "script error"));
+        window.addEventListener("unhandledrejection", (e) => send("unhandledrejection", String(e.reason)));
+
+        setTimeout(() => {
+          if (!window.Telegram || !window.Telegram.WebApp) {
+            send("no-telegram", "Telegram SDK not ready after 3s");
+          }
+          const root = document.getElementById("root");
+          if (root && !root.hasChildNodes()) {
+            send("render-wait", "Root empty after 3s");
+          }
+        }, 3000);
+
+        send("boot", "page-start");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
