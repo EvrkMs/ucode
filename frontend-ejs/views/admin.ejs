@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ucode Admin</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --border:#1e293b; --text:#e2e8f0; --muted:#94a3b8; --accent:#f97316; }
+    body { font-family: Arial, sans-serif; max-width: 920px; margin: 0 auto; padding: 24px; background: var(--bg); color: var(--text); }
+    h1 { margin: 0 0 12px 0; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    input, textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: #0b1220; color: var(--text); }
+    textarea { min-height: 120px; font-family: monospace; }
+    button { background: var(--accent); color: #0f172a; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 700; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .muted { color: var(--muted); }
+    .status { padding: 10px 14px; border-radius: 10px; background: #0b1220; border: 1px solid var(--border); margin-bottom: 16px; min-height: 44px; }
+    .user-card { display:flex; gap:12px; align-items:center; }
+    .user-avatar { width:64px; height:64px; border-radius:50%; object-fit:cover; background:#0b1220; border:1px solid var(--border); }
+    .code-item { padding:8px 0; border-bottom:1px solid var(--border); }
+    .code-item:last-child { border-bottom:none; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Ucode Admin</h1>
+    <div class="status" id="statusBar">Инициализация...</div>
+
+    <section class="card">
+      <div class="user-card">
+        <img id="userPhoto" class="user-avatar" alt="" />
+        <div>
+          <div id="userName" style="font-weight:700;">Не авторизован</div>
+          <div class="muted" id="userRole"></div>
+          <div class="muted" id="userBalance"></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="adminContent" class="hidden">
+      <section class="card">
+        <h2 style="margin:0 0 8px 0;">Генерация кода</h2>
+        <div class="row">
+          <input id="pointsInput" type="number" value="1" min="1">
+          <button id="generateBtn">Сгенерировать</button>
+        </div>
+        <div id="generateStatus" class="muted" style="margin-top:8px;"></div>
+        <input id="initData" type="hidden">
+      </section>
+
+      <section class="card">
+        <h2 style="margin:0 0 8px 0;">История кодов</h2>
+        <div id="history"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const apiBase = "<%= apiBase %>";
+    const statusBar = document.getElementById('statusBar');
+    const adminContent = document.getElementById('adminContent');
+    const initDataField = document.getElementById('initData');
+    const pointsInput = document.getElementById('pointsInput');
+    const generateBtn = document.getElementById('generateBtn');
+    const generateStatus = document.getElementById('generateStatus');
+    const historyEl = document.getElementById('history');
+    const userNameEl = document.getElementById('userName');
+    const userRoleEl = document.getElementById('userRole');
+    const userBalanceEl = document.getElementById('userBalance');
+    const userPhotoEl = document.getElementById('userPhoto');
+    let state = {
+      token: '',
+      expiresAt: null,
+      csrfToken: '',
+      refreshTimer: null,
+      user: null
+    };
+
+    const setStatus = (msg) => statusBar.textContent = msg;
+    const setHistory = (html) => historyEl.innerHTML = html;
+
+    const readCsrfFromCookie = () => {
+      const match = document.cookie.split(';').map((c) => c.trim()).find((c) => c.startsWith('csrf='));
+      return match ? decodeURIComponent(match.split('=')[1]) : '';
+    };
+
+    const authFetch = async (path, init = {}, retry = true) => {
+      const headers = new Headers(init.headers || {});
+      if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
+      const method = (init.method || 'GET').toUpperCase();
+      if (!['GET','HEAD','OPTIONS','TRACE'].includes(method)) {
+        const csrf = state.csrfToken || readCsrfFromCookie();
+        if (csrf) headers.set('X-CSRF-Token', csrf);
+      }
+      const res = await fetch(`${apiBase}${path}`, { ...init, headers });
+      if (res.status === 401 && retry && initDataField.value.trim()) {
+        const newToken = await fetchToken();
+        if (!newToken) return res;
+        headers.set('Authorization', `Bearer ${newToken}`);
+        return fetch(`${apiBase}${path}`, { ...init, headers });
+      }
+      return res;
+    };
+
+    const renderUser = (user) => {
+      if (!user) {
+        userNameEl.textContent = 'Не авторизован';
+        userRoleEl.textContent = '';
+        userBalanceEl.textContent = '';
+        userPhotoEl.src = '';
+        userPhotoEl.style.display = 'none';
+        return;
+      }
+      const name = user.username ? `@${user.username}` : `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || 'Без имени';
+      userNameEl.textContent = name;
+      userRoleEl.textContent = user.role === 'admin' ? 'Админ' : 'Клиент';
+      userBalanceEl.textContent = `🍬 ${user.balance}`;
+      if (user.photoUrl) {
+        userPhotoEl.src = user.photoUrl;
+        userPhotoEl.style.display = 'block';
+      } else {
+        userPhotoEl.src = '';
+        userPhotoEl.style.display = 'none';
+      }
+      if (user.role === 'admin') {
+        adminContent.classList.remove('hidden');
+      } else {
+        adminContent.classList.add('hidden');
+        setStatus('Доступ только для админа');
+        setTimeout(() => window.location.replace('/'), 800);
+      }
+    };
+
+    const fetchProfile = async () => {
+      if (!state.token) return;
+      try {
+        const res = await authFetch('/auth/me');
+        const data = await res.json().catch(() => ({}));
+        state.user = data.user ?? null;
+        renderUser(state.user);
+        if (state.user?.role === 'admin') {
+          await loadHistory();
+        }
+      } catch (err) {
+        setStatus(`Ошибка профиля: ${err.message}`);
+      }
+    };
+
+    const renderHistory = (list) => {
+      if (!Array.isArray(list) || list.length === 0) {
+        setHistory('<div class="muted">Пока нет кодов</div>');
+        return;
+      }
+      const html = list.map((c) => {
+        const expires = new Date(c.expiresAt).toLocaleString();
+        const used = c.used ? `использован (by ${c.usedBy ?? '?'})` : 'не использован';
+        return `<div class="code-item">
+          <div><strong>${c.value}</strong> (+${c.points})</div>
+          <div class="muted">истекает: ${expires} | ${used}</div>
+        </div>`;
+      }).join('');
+      setHistory(html);
+    };
+
+    const loadHistory = async () => {
+      try {
+        const res = await authFetch('/codes/admin/history');
+        if (!res.ok) return;
+        const data = await res.json().catch(() => []);
+        renderHistory(data);
+      } catch (err) {
+        setHistory(`Ошибка загрузки истории: ${err.message}`);
+      }
+    };
+
+    const generateCode = async () => {
+      const points = parseInt(pointsInput.value, 10);
+      if (!points || points <= 0) {
+        generateStatus.textContent = 'Введите баллы > 0';
+        return;
+      }
+      if (state.user?.role !== 'admin') {
+        generateStatus.textContent = 'Нет прав';
+        return;
+      }
+      generateBtn.disabled = true;
+      generateStatus.textContent = 'Создаю код...';
+      try {
+        const res = await authFetch('/codes/admin/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ points })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.message || `Request failed (${res.status})`);
+        }
+        generateStatus.textContent = `Код: ${data.code} (+${data.points}), истекает: ${new Date(data.expiresAt).toLocaleString()}`;
+        await loadHistory();
+      } catch (err) {
+        generateStatus.textContent = `Ошибка: ${err.message}`;
+      } finally {
+        generateBtn.disabled = false;
+      }
+    };
+
+    const doAuth = async () => {
+      setStatus('Запрашиваю токен...');
+      try {
+        const initData = initDataField.value.trim();
+        if (!initData) {
+          setStatus('Добавьте initData из Telegram.');
+          return;
+        }
+
+        const res = await fetch(`${apiBase}/auth/telegram`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.message || `Request failed (${res.status})`);
+        }
+
+        state.token = data.token;
+        state.expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
+        state.csrfToken = data.csrfToken || readCsrfFromCookie() || '';
+        setStatus('Авторизовано');
+        await fetchProfile();
+        scheduleRefresh();
+      } catch (err) {
+        setStatus(`Ошибка: ${err.message}`);
+      }
+    };
+
+    const scheduleRefresh = () => {
+      if (state.refreshTimer) {
+        clearTimeout(state.refreshTimer);
+        state.refreshTimer = null;
+      }
+      if (!state.expiresAt || !initDataField.value.trim()) return;
+      const now = Date.now();
+      const refreshAt = state.expiresAt.getTime() - 10000;
+      const delay = Math.max(refreshAt - now, 5000);
+      state.refreshTimer = setTimeout(fetchToken, delay);
+    };
+
+    const fetchToken = async () => {
+      const initData = initDataField.value.trim();
+      if (!initData) return null;
+      setStatus('Обновление токена...');
+      try {
+        const res = await fetch(`${apiBase}/auth/telegram`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData })
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        state.token = data.token;
+        state.expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
+        state.csrfToken = data.csrfToken || readCsrfFromCookie() || '';
+        scheduleRefresh();
+        return data.token;
+      } catch {
+        return null;
+      }
+    };
+
+    generateBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      generateCode();
+    });
+
+    const readTelegramInitData = () => {
+      const tg = window.Telegram?.WebApp;
+      if (!tg) return "";
+      try { tg.ready(); tg.expand(); } catch (err) { }
+      if (tg.initData && tg.initData.length > 0) return tg.initData;
+      const unsafe = tg.initDataUnsafe;
+      if (unsafe && Object.keys(unsafe).length > 0) {
+        try { return tg.initData ?? new URLSearchParams(unsafe).toString(); }
+        catch { return tg.initData ?? ""; }
+      }
+      return "";
+    };
+
+    const getHashInitData = () => {
+      const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+      const params = new URLSearchParams(hash);
+      const hashInit = params.get('tgWebAppData');
+      return hashInit ? decodeURIComponent(hashInit) : "";
+    };
+
+    const tryAutoAuth = () => {
+      const hashInit = getHashInitData();
+      if (hashInit) {
+        initDataField.value = hashInit;
+        setStatus('initData найден в hash, авторизуюсь...');
+        doAuth();
+        return;
+      }
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const paramInit = urlParams.get('initData');
+      if (paramInit) {
+        initDataField.value = decodeURIComponent(paramInit);
+        setStatus('initData найден в URL, авторизуюсь...');
+        doAuth();
+        return;
+      }
+
+      const stored = sessionStorage.getItem('ucode_initData') || '';
+      const tgInit = readTelegramInitData() || stored;
+      if (tgInit) {
+        initDataField.value = tgInit;
+        setStatus('Нашел initData в Telegram, авторизуюсь...');
+        doAuth();
+        return;
+      }
+      setStatus('Авто initData не найден, попробуйте позже.');
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      let attempts = 0;
+      const interval = setInterval(() => {
+        attempts += 1;
+        if (initDataField.value.trim()) {
+          clearInterval(interval);
+          return;
+        }
+        tryAutoAuth();
+        if (attempts >= 20) {
+          clearInterval(interval);
+        }
+      }, 300);
+    });
+  </script>
+</body>
+</html>

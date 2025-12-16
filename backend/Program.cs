@@ -4,6 +4,12 @@ using Ucode.Backend.Extensions;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.UseUrls("http://0.0.0.0:5001");
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // Allow slow uploads through proxies (prevents 408 from MinRequestBodyDataRate).
+    options.Limits.MinRequestBodyDataRate = null;
+    options.Limits.MinResponseDataRate = null;
+});
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
