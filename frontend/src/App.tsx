@@ -6,6 +6,7 @@ import { LoadingPage } from "./pages/LoadingPage";
 import { ErrorBox } from "./components/ErrorBox";
 import { Modal, ModalState } from "./components/Modal";
 import { toWsUrl } from "./utils/ws";
+import { dataCache } from "./utils/cache";
 import { ApiConfig, AppUser, AuthResponse, CodeHistory, LeaderboardItem } from "./types";
 
 const apiBase = import.meta.env.VITE_API_BASE ?? "/api";
@@ -42,6 +43,7 @@ function App() {
   const [csrfToken, setCsrfToken] = useState("");
   const [modal, setModal] = useState<ModalState>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [loading, setLoading] = useState({ profile: false, history: false, leaderboard: false });
   const refreshTimer = useRef<number | null>(null);
   const wsRef = useRef<ReconnectingWebSocket | null>(null);
 
@@ -49,14 +51,33 @@ function App() {
     setErrors((prev) => [...prev.slice(-4), msg]);
   };
 
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const updateTheme = (isDark: boolean) => setTheme(isDark ? "dark" : "light");
-    updateTheme(media.matches);
-    const listener = (event: MediaQueryListEvent) => updateTheme(event.matches);
-    media.addEventListener("change", listener);
-    return () => media.removeEventListener("change", listener);
-  }, []);
+  const updateLoading = (key: keyof typeof loading, value: boolean) => {
+    setLoading((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 15000) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeout);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const fetchWithRetry = async <T,>(fn: () => Promise<T>, maxRetries = 3, delayMs = 800) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err;
+        if (attempt === maxRetries - 1) break;
+        await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)));
+      }
+    }
+    throw lastError ?? new Error("Unknown error");
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -77,52 +98,141 @@ function App() {
   }, []);
 
   useEffect(() => {
-    fetch(`${apiBase}/auth/config`)
+    const tg = window.Telegram?.WebApp;
+    const setViewportVar = (height: number) => {
+      document.documentElement.style.setProperty("--tg-viewport-height", `${height}px`);
+    };
+
+    const applyThemeFromTelegram = () => {
+      const scheme = tg?.colorScheme === "dark" ? "dark" : "light";
+      if (scheme) setTheme(scheme);
+      const params = tg?.themeParams;
+      const root = document.documentElement.style;
+      if (params?.bg_color) root.setProperty("--bg", params.bg_color);
+      if (params?.secondary_bg_color) root.setProperty("--card", params.secondary_bg_color);
+      if (params?.text_color) root.setProperty("--text", params.text_color);
+      if (params?.hint_color) root.setProperty("--muted", params.hint_color);
+      if (params?.button_color) root.setProperty("--accent", params.button_color);
+      if (params?.link_color) root.setProperty("--link", params.link_color);
+      if (params?.button_text_color) root.setProperty("--buttonText", params.button_text_color);
+    };
+
+    const updateViewport = () => {
+      if (tg?.viewportHeight) {
+        setViewportVar(tg.stableViewportHeight || tg.viewportHeight);
+      } else {
+        setViewportVar(window.innerHeight);
+      }
+    };
+
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      applyThemeFromTelegram();
+      updateViewport();
+      tg.setBackgroundColor?.(tg.themeParams?.bg_color ?? "#ffffff");
+      const headerColor = tg.themeParams?.secondary_bg_color ?? tg.themeParams?.bg_color;
+      if (headerColor) tg.setHeaderColor?.(headerColor);
+      tg.onEvent("themeChanged", applyThemeFromTelegram);
+      tg.onEvent("viewportChanged", updateViewport);
+      return () => {
+        tg.offEvent("themeChanged", applyThemeFromTelegram);
+        tg.offEvent("viewportChanged", updateViewport);
+      };
+    }
+
+    applyThemeFromTelegram();
+    updateViewport();
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateTheme = (isDark: boolean) => setTheme(isDark ? "dark" : "light");
+    updateTheme(media.matches);
+    const listener = (event: MediaQueryListEvent) => updateTheme(event.matches);
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
+  }, []);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      if (user) {
+        void fetchProfile();
+      }
+    };
+    const handleOffline = () =>
+      setModal({
+        title: "Нет соединения",
+        message: "Проверьте подключение к интернету",
+        type: "error"
+      });
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [user]);
+
+  useEffect(() => {
+    fetchWithTimeout(`${apiBase}/auth/config`)
       .then((res) => res.json())
       .then((cfg) => setConfig(cfg))
       .catch(() => setConfig(null));
   }, []);
 
   useEffect(() => {
-    // Откладываем подключение WS до авторизации
-    if (!user) {
+    // Откладываем подключение WS до авторизации и получения токена
+    if (!user || !token) {
       wsRef.current?.close();
       wsRef.current = null;
       setWsConnected(false);
       return;
     }
 
-    const socket = new ReconnectingWebSocket(toWsUrl(wsPath), [], {
-      WebSocket: window.WebSocket,
-      maxRetries: 20,
-      reconnectInterval: 2000
-    });
-    wsRef.current = socket;
+    const connectTimer = window.setTimeout(() => {
+      const socket = new ReconnectingWebSocket(toWsUrl(wsPath), [], {
+        WebSocket: window.WebSocket,
+        maxRetries: 20,
+        reconnectInterval: 2000,
+        connectionTimeout: 10000,
+        maxReconnectionDelay: 10000,
+        minReconnectionDelay: 1000
+      });
+      wsRef.current = socket;
 
-    socket.addEventListener("message", (event) => {
-      try {
-        const data = JSON.parse(event.data as string) as LeaderboardItem[];
-        setLeaderboard(data);
-      } catch {
-        // ignore malformed messages
-      }
-    });
+      socket.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data as string) as LeaderboardItem[];
+          setLeaderboard(data);
+        } catch {
+          // ignore malformed messages
+        }
+      });
 
-    socket.addEventListener("open", () => setWsConnected(true));
-    socket.addEventListener("close", () => setWsConnected(false));
-    socket.addEventListener("error", () => setWsConnected(false));
+      socket.addEventListener("open", () => setWsConnected(true));
+      socket.addEventListener("close", () => setWsConnected(false));
+      socket.addEventListener("error", () => setWsConnected(false));
+    }, 300);
 
     return () => {
-      socket.close();
+      clearTimeout(connectTimer);
+      wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [user]);
+  }, [user, token]);
 
   useEffect(() => {
     if (!authStarted && initData) {
       setAuthStarted(true);
       void fetchToken();
     }
+    return () => {
+      if (refreshTimer.current) {
+        clearTimeout(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    };
   }, [authStarted, initData]);
 
   const parsedExp = useMemo(() => {
@@ -152,12 +262,18 @@ function App() {
       return;
     }
     refreshTimer.current = window.setTimeout(() => void fetchToken(), refreshAt - now);
+    return () => {
+      if (refreshTimer.current) {
+        clearTimeout(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    };
   }, [parsedExp, tokenExp, initData]);
 
   const fetchToken = async () => {
     setAuthInProgress(true);
     try {
-      const res = await fetch(`${apiBase}/auth/telegram`, {
+      const res = await fetchWithTimeout(`${apiBase}/auth/telegram`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ initData })
@@ -195,7 +311,7 @@ function App() {
     if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method) && csrfToken) {
       headers.set("X-CSRF-Token", csrfToken);
     }
-    const res = await fetch(`${apiBase}${path}`, { ...init, headers });
+    const res = await fetchWithTimeout(`${apiBase}${path}`, { ...init, headers });
     if (res.status === 401 && retry && initData) {
       const newToken = await fetchToken();
       const latestCsrf = readCsrfFromCookie();
@@ -206,36 +322,65 @@ function App() {
       if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method) && (latestCsrf || csrfToken)) {
         retryHeaders.set("X-CSRF-Token", latestCsrf || csrfToken);
       }
-      return fetch(`${apiBase}${path}`, { ...init, headers: retryHeaders });
+      return fetchWithTimeout(`${apiBase}${path}`, { ...init, headers: retryHeaders });
     }
     return res;
   };
 
   const fetchProfile = async (overrideToken?: string) => {
-    const headers = new Headers();
-    headers.set("Authorization", `Bearer ${overrideToken ?? token}`);
-    const res = await fetch(`${apiBase}/auth/me`, { headers });
-    if (!res.ok) return;
-    const data = await res.json();
-    setUser(data.user);
-    if (data.user?.role === "admin") {
-      void loadHistory(overrideToken ?? token);
+    updateLoading("profile", true);
+    try {
+      const headers = new Headers();
+      headers.set("Authorization", `Bearer ${overrideToken ?? token}`);
+      const res = await fetchWithTimeout(`${apiBase}/auth/me`, { headers });
+      if (!res.ok) {
+        throw new Error(`Profile fetch failed (${res.status})`);
+      }
+      const data = await res.json();
+      setUser(data.user);
+      const jobs: Promise<unknown>[] = [loadLeaderboard()];
+      if (data.user?.role === "admin") {
+        jobs.push(loadHistory(overrideToken ?? token));
+      }
+      await Promise.allSettled(jobs);
+    } finally {
+      updateLoading("profile", false);
     }
-    void loadLeaderboard();
   };
 
   const loadHistory = async (tokenOverride?: string) => {
-    const res = await authFetch("/codes/admin/history", undefined, true, tokenOverride);
-    if (!res.ok) return;
-    const data = await res.json();
-    setHistory(data);
+    updateLoading("history", true);
+    try {
+      const res = await authFetch("/codes/admin/history", undefined, true, tokenOverride);
+      if (!res.ok) return;
+      const data = await res.json();
+      setHistory(data);
+    } finally {
+      updateLoading("history", false);
+    }
   };
 
   const loadLeaderboard = async () => {
-    const res = await fetch(`${apiBase}/codes/leaderboard`);
-    if (!res.ok) return;
-    const data = await res.json();
-    setLeaderboard(data);
+    updateLoading("leaderboard", true);
+    try {
+      const cached = dataCache.get<LeaderboardItem[]>("leaderboard");
+      if (cached) {
+        setLeaderboard(cached);
+        return;
+      }
+      await fetchWithRetry(async () => {
+        const res = await fetchWithTimeout(`${apiBase}/codes/leaderboard`);
+        if (!res.ok) throw new Error(`Leaderboard failed (${res.status})`);
+        const data = await res.json();
+        dataCache.set("leaderboard", data, 5000);
+        setLeaderboard(data);
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Не удалось загрузить рейтинг";
+      logError(msg);
+    } finally {
+      updateLoading("leaderboard", false);
+    }
   };
 
   const redeem = async () => {
@@ -253,6 +398,7 @@ function App() {
       }
       setUser((prev) => (prev ? { ...prev, balance: data.balance } : prev));
       setRedeemCode("");
+      dataCache.invalidate("leaderboard");
       await loadLeaderboard();
       const candiesText = `🍬: ${data.balance}`;
       setModal({
@@ -281,6 +427,7 @@ function App() {
       if (!res.ok) {
         throw new Error(data.message || `Request failed (${res.status})`);
       }
+      dataCache.invalidate("history");
       await loadHistory();
       setModal({
         title: "Код создан",
@@ -310,6 +457,9 @@ function App() {
     <div className="page">
       <ErrorBox errors={errors} />
       <Modal modal={modal} onClose={() => setModal(null)} />
+      {loading.profile && <div className="muted">Загрузка профиля...</div>}
+      {loading.leaderboard && !loading.profile && <div className="muted">Загрузка рейтинга...</div>}
+      {loading.history && user?.role === "admin" && <div className="muted">Обновляем историю кодов...</div>}
 
       {user && (
         <section className="card">

@@ -19,6 +19,29 @@ public static class WebApplicationExtensions
         app.UseAuthorization();
         app.UseWebSockets();
         app.UseMiddleware<CsrfMiddleware>();
+        app.Use(async (context, next) =>
+        {
+            var path = context.Request.Path.Value?.ToLowerInvariant() ?? string.Empty;
+            if (path.Contains("/auth/config"))
+            {
+                context.Response.Headers.CacheControl = "public, max-age=3600";
+            }
+            else if (path.Contains("/codes/leaderboard"))
+            {
+                context.Response.Headers.CacheControl = "public, max-age=5";
+            }
+            else if (path.Contains("/auth/me"))
+            {
+                context.Response.Headers.CacheControl = "private, max-age=60";
+            }
+            else if (path.StartsWith("/api/") || path.StartsWith("/codes/"))
+            {
+                context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+                context.Response.Headers.Pragma = "no-cache";
+            }
+
+            await next();
+        });
 
         var staticRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
         var hasStaticFiles = Directory.Exists(staticRoot);
@@ -29,7 +52,16 @@ public static class WebApplicationExtensions
                 OnPrepareResponse = ctx =>
                 {
                     var headers = ctx.Context.Response.Headers;
-                    headers.CacheControl = "public, max-age=31536000, immutable";
+                    if (ctx.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+                    {
+                        headers.CacheControl = "no-cache, no-store, must-revalidate";
+                        headers.Pragma = "no-cache";
+                        headers.Expires = "0";
+                    }
+                    else
+                    {
+                        headers.CacheControl = "public, max-age=31536000, immutable";
+                    }
                 }
             });
         }
@@ -39,7 +71,16 @@ public static class WebApplicationExtensions
 
         if (hasStaticFiles)
         {
-            app.MapFallbackToFile("index.html");
+            app.MapFallbackToFile("index.html", new StaticFileOptions
+            {
+                OnPrepareResponse = ctx =>
+                {
+                    var headers = ctx.Context.Response.Headers;
+                    headers.CacheControl = "no-cache, no-store, must-revalidate";
+                    headers.Pragma = "no-cache";
+                    headers.Expires = "0";
+                }
+            });
         }
 
         MapWebSockets(app);
