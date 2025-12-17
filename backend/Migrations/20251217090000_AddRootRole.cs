@@ -1,13 +1,15 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Ucode.Backend.Data;
 
 #nullable disable
 
 namespace Ucode.Backend.Migrations
 {
-    /// <inheritdoc />
+    [DbContext(typeof(UcodeDbContext))]
+    [Migration("20251217090000_AddRootRole")]
     public partial class AddRootRole : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<bool>(
@@ -18,7 +20,6 @@ namespace Ucode.Backend.Migrations
                 defaultValue: false);
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(
