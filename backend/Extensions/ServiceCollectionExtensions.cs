@@ -52,7 +52,14 @@ public static class ServiceCollectionExtensions
                 throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
             }
 
-            options.UseNpgsql(conn);
+            options.UseNpgsql(conn, npgsqlOptions =>
+            {
+                npgsqlOptions.EnableRetryOnFailure(
+                    maxRetryCount: 5,
+                    maxRetryDelay: TimeSpan.FromSeconds(5),
+                    errorCodesToAdd: null);
+                npgsqlOptions.CommandTimeout(30);
+            });
         });
 
         services.AddSingleton<ITelegramAuthValidator, TelegramAuthValidator>();

@@ -25,6 +25,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=build /app/publish .
-ENV ASPNETCORE_URLS=http://0.0.0.0:5001
+# Копируем сертификаты для Kestrel HTTPS (путь /app/certs)
+COPY backend/certs ./certs
 EXPOSE 5001
 ENTRYPOINT ["dotnet", "Ucode.Backend.dll"]

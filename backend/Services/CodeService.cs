@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 using Ucode.Backend.Data;
 using Ucode.Backend.Entities;
 
@@ -16,7 +17,6 @@ public sealed class CodeService(UcodeDbContext dbContext) : ICodeService
 {
     private readonly UcodeDbContext _dbContext = dbContext;
     private static readonly char[] Alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".ToCharArray();
-    private static readonly Random Random = new();
 
     public async Task<Code> GenerateAsync(int points, long adminId, TimeSpan ttl, CancellationToken ct = default)
     {
@@ -135,7 +135,8 @@ public sealed class CodeService(UcodeDbContext dbContext) : ICodeService
         var chars = new char[length];
         for (var i = 0; i < length; i++)
         {
-            chars[i] = Alphabet[Random.Next(Alphabet.Length)];
+            var index = RandomNumberGenerator.GetInt32(Alphabet.Length);
+            chars[i] = Alphabet[index];
         }
         return new string(chars);
     }
