@@ -102,7 +102,7 @@ public class AuthController(
                 FirstName = user.FirstName,
                 LastName = user.LastName,
                 PhotoUrl = user.PhotoUrl,
-                Role = user.IsAdmin ? "admin" : "client",
+                Role = user.IsRoot ? "root" : user.IsAdmin ? "admin" : "client",
                 Balance = user.Balance
             }
         });

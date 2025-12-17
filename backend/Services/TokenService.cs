@@ -66,10 +66,16 @@ public sealed class TokenService(IOptions<JwtOptions> jwtOptions, IMemoryCache c
             claims.Add(new Claim("tg:photo_url", user.PhotoUrl));
         }
 
-        if (user.IsAdmin)
+        if (user.IsAdmin || user.IsRoot)
         {
             claims.Add(new Claim(ClaimTypes.Role, "admin"));
             claims.Add(new Claim("role", "admin"));
+        }
+
+        if (user.IsRoot)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, "root"));
+            claims.Add(new Claim("role", "root"));
         }
 
         var descriptor = new SecurityTokenDescriptor

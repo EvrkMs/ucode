@@ -4,7 +4,7 @@ import { Modal, ModalState } from "./components/Modal";
 import { LoadingPage } from "./pages/LoadingPage";
 import { toWsUrl } from "./utils/ws";
 import { dataCache } from "./utils/cache";
-import { ApiConfig, AppUser, AuthResponse, CodeHistory, LeaderboardItem } from "./types";
+import { ApiConfig, AppUser, AuthResponse, CodeHistory, LeaderboardItem, RootUser } from "./types";
 import { sendDiag } from "./utils/diag";
 
 // Lazy loading компонентов для уменьшения initial bundle
@@ -58,6 +58,12 @@ function App() {
   const [loading, setLoading] = useState({ profile: false, history: false, leaderboard: false });
   const refreshTimer = useRef<number | null>(null);
   const wsRef = useRef<any>(null);
+  const sdkMissingLogged = useRef(false);
+  const lastAuthStart = useRef<number | null>(null);
+  const [rootSearchQuery, setRootSearchQuery] = useState("");
+  const [rootResults, setRootResults] = useState<RootUser[]>([]);
+  const [rootBusy, setRootBusy] = useState(false);
+  const [rootError, setRootError] = useState<string | null>(null);
 
   const logError = (msg: string) => {
     setErrors((prev) => [...prev.slice(-4), msg]);
@@ -414,8 +420,12 @@ function App() {
       }
       const data = await res.json();
       setUser(data.user);
+      if (data.user?.role !== "root") {
+        setRootResults([]);
+        setRootSearchQuery("");
+      }
       const jobs: Promise<unknown>[] = [loadLeaderboard()];
-      if (data.user?.role === "admin") {
+      if (data.user?.role === "admin" || data.user?.role === "root") {
         jobs.push(loadHistory(overrideToken ?? token));
       }
       await Promise.allSettled(jobs);
@@ -457,6 +467,49 @@ function App() {
       logError(msg);
     } finally {
       updateLoading("leaderboard", false);
+    }
+  };
+
+  const searchUsers = async () => {
+    if (!rootSearchQuery.trim()) return;
+    setRootBusy(true);
+    setRootError(null);
+    try {
+      const res = await authFetch(`/root/users?query=${encodeURIComponent(rootSearchQuery.trim())}`);
+      if (!res.ok) {
+        throw new Error(`Search failed (${res.status})`);
+      }
+      const data = await res.json();
+      setRootResults(data);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Не удалось выполнить поиск";
+      setRootError(msg);
+    } finally {
+      setRootBusy(false);
+    }
+  };
+
+  const toggleAdmin = async (id: number, current: boolean) => {
+    setRootBusy(true);
+    setRootError(null);
+    try {
+      const res = await authFetch(`/root/users/${id}/admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isAdmin: !current })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || `Не удалось обновить роль (${res.status})`);
+      }
+      setRootResults((prev) =>
+        prev.map((u) => (u.telegramId === id ? { ...u, isAdmin: !current || u.isRoot } : u))
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Не удалось обновить роль";
+      setRootError(msg);
+    } finally {
+      setRootBusy(false);
     }
   };
 
@@ -536,7 +589,9 @@ function App() {
       <Modal modal={modal} onClose={() => setModal(null)} />
       {loading.profile && <div className="muted">Загрузка профиля...</div>}
       {loading.leaderboard && !loading.profile && <div className="muted">Загрузка рейтинга...</div>}
-      {loading.history && user?.role === "admin" && <div className="muted">Обновляем историю кодов...</div>}
+      {loading.history && user && (user.role === "admin" || user.role === "root") && (
+        <div className="muted">Обновляем историю кодов...</div>
+      )}
 
       {user && (
         <section className="card">
@@ -546,7 +601,7 @@ function App() {
             <div>
               <div className="user-name">{displayName(user)}</div>
               <div className="muted">🍬 {user.balance}</div>
-              <div className="muted">{user.role === "admin" ? "Админ" : "Клиент"}</div>
+              <div className="muted">{user.role === "root" ? "Root" : user.role === "admin" ? "Админ" : "Клиент"}</div>
               {config?.tokenTtlSeconds ? <div className="muted">TTL токена: {config.tokenTtlSeconds}s</div> : null}
             </div>
           </div>
@@ -555,7 +610,7 @@ function App() {
 
       {user && (
         <Suspense fallback={<LoadingPage subtitle="Загрузка компонента..." />}>
-          {user.role === "admin" ? (
+          {user.role === "admin" || user.role === "root" ? (
             <AdminPage
               pointsToGenerate={pointsToGenerate}
               onPointsChange={setPointsToGenerate}
@@ -563,6 +618,14 @@ function App() {
               busy={busy}
               history={history}
               wsConnected={wsConnected}
+              isRoot={user.role === "root"}
+              rootSearchQuery={rootSearchQuery}
+              onRootSearchChange={setRootSearchQuery}
+              onRootSearch={searchUsers}
+              rootResults={rootResults}
+              onToggleAdmin={toggleAdmin}
+              rootBusy={rootBusy}
+              rootError={rootError}
             />
           ) : (
             <ClientPage

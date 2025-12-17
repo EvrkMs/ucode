@@ -71,7 +71,8 @@ public static class ServiceCollectionExtensions
         services.AddControllers();
         services.AddAuthorization(options =>
         {
-            options.AddPolicy("AdminOnly", policy => policy.RequireRole("admin"));
+            options.AddPolicy("AdminOnly", policy => policy.RequireRole("admin", "root"));
+            options.AddPolicy("RootOnly", policy => policy.RequireRole("root"));
         });
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

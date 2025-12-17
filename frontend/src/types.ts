@@ -1,4 +1,4 @@
-export type Role = "client" | "admin";
+export type Role = "client" | "admin" | "root";
 
 export type TelegramUser = {
   id: number;
@@ -11,6 +11,15 @@ export type TelegramUser = {
 export type AppUser = TelegramUser & {
   role: Role;
   balance: number;
+};
+
+export type RootUser = {
+  telegramId: number;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  isAdmin: boolean;
+  isRoot: boolean;
 };
 
 export type AuthResponse = {

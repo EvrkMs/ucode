@@ -11,6 +11,7 @@ public class User
     public bool? IsBot { get; set; }
     public bool? IsPremium { get; set; }
     public bool IsAdmin { get; set; }
+    public bool IsRoot { get; set; }
     public long Balance { get; set; }
     public DateTimeOffset LastAuthAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }

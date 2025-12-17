@@ -7,9 +7,39 @@ type Props = {
   busy: boolean;
   history: CodeHistory[];
   wsConnected?: boolean;
+  isRoot?: boolean;
+  rootSearchQuery?: string;
+  onRootSearchChange?: (q: string) => void;
+  onRootSearch?: () => void;
+  rootResults?: Array<{
+    telegramId: number;
+    username?: string;
+    firstName?: string;
+    lastName?: string;
+    isAdmin: boolean;
+    isRoot: boolean;
+  }>;
+  onToggleAdmin?: (telegramId: number, current: boolean) => void;
+  rootBusy?: boolean;
+  rootError?: string | null;
 };
 
-export function AdminPage({ pointsToGenerate, onPointsChange, onGenerate, busy, history, wsConnected = true }: Props) {
+export function AdminPage({
+  pointsToGenerate,
+  onPointsChange,
+  onGenerate,
+  busy,
+  history,
+  wsConnected = true,
+  isRoot = false,
+  rootSearchQuery = "",
+  onRootSearchChange,
+  onRootSearch,
+  rootResults = [],
+  onToggleAdmin,
+  rootBusy = false,
+  rootError = null
+}: Props) {
   return (
     <section className="card">
       <div className="card-header">
@@ -49,6 +79,49 @@ export function AdminPage({ pointsToGenerate, onPointsChange, onGenerate, busy, 
             </li>
           ))}
         </ul>
+      )}
+
+      {isRoot && (
+        <>
+          <h3 style={{ marginTop: 24 }}>Root: управление админами</h3>
+          <div className="actions">
+            <input
+              type="text"
+              placeholder="@username или id"
+              value={rootSearchQuery}
+              onChange={(e) => onRootSearchChange?.(e.target.value)}
+              disabled={rootBusy}
+            />
+            <button onClick={onRootSearch} disabled={rootBusy || !rootSearchQuery.trim()}>
+              Найти
+            </button>
+          </div>
+          {rootError ? <div className="error-box">{rootError}</div> : null}
+          {rootResults.length === 0 ? (
+            <div className="muted">Нет результатов</div>
+          ) : (
+            <ul className="list">
+              {rootResults.map((u) => (
+                <li key={u.telegramId} className="list-item">
+                  <div className="list-text">
+                    <div className="user-name">
+                      {u.username ? `@${u.username}` : u.telegramId} {u.isRoot ? "(root)" : null}
+                    </div>
+                    <div className="muted">
+                      {u.firstName} {u.lastName}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onToggleAdmin?.(u.telegramId, u.isAdmin)}
+                    disabled={rootBusy || u.isRoot}
+                  >
+                    {u.isAdmin ? "Снять админа" : "Выдать админа"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   );

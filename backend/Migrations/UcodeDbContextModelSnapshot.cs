@@ -87,6 +87,9 @@ namespace Ucode.Backend.Migrations
                     b.Property<bool>("IsAdmin")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsRoot")
+                        .HasColumnType("boolean");
+
                     b.Property<bool?>("IsBot")
                         .HasColumnType("boolean");
 

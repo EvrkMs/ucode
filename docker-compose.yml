@@ -23,8 +23,8 @@ services:
       - .env
     environment:
       - ASPNETCORE_URLS=https://0.0.0.0:5001
-    expose:
-      - "5001"
+    ports:
+      - 5001:5001
     restart: unless-stopped
     depends_on:
       - db

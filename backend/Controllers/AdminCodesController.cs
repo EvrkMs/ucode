@@ -12,7 +12,7 @@ namespace Ucode.Backend.Controllers;
 [ApiController]
 [Route("codes/admin")]
 [Route("api/codes/admin")]
-[Authorize(Roles = "admin")]
+[Authorize(Roles = "admin,root")]
 public class AdminCodesController(ICodeService codeService, IUserService userService, ILogger<AdminCodesController> logger) : ControllerBase
 {
     private readonly ICodeService _codeService = codeService;

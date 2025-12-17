@@ -9,6 +9,8 @@ public interface IUserService
 {
     Task<User> UpsertTelegramUserAsync(TelegramUser tgUser, DateTimeOffset authDate, CancellationToken ct = default);
     Task<User?> GetByTelegramIdAsync(long telegramId, CancellationToken ct = default);
+    Task<IReadOnlyList<User>> SearchAsync(string query, int limit = 20, CancellationToken ct = default);
+    Task<bool> SetAdminAsync(long targetTelegramId, bool isAdmin, CancellationToken ct = default);
 }
 
 public sealed class UserService(UcodeDbContext dbContext, ILogger<UserService> logger) : IUserService
@@ -60,5 +62,44 @@ public sealed class UserService(UcodeDbContext dbContext, ILogger<UserService> l
     public Task<User?> GetByTelegramIdAsync(long telegramId, CancellationToken ct = default)
     {
         return _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.TelegramId == telegramId, ct);
+    }
+
+    public async Task<IReadOnlyList<User>> SearchAsync(string query, int limit = 20, CancellationToken ct = default)
+    {
+        var normalized = query.Trim().TrimStart('@');
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return Array.Empty<User>();
+        }
+
+        return await _dbContext.Users.AsNoTracking()
+            .Where(u =>
+                u.TelegramId.ToString() == normalized ||
+                (u.Username != null && EF.Functions.ILike(u.Username, $"{normalized}%")))
+            .OrderBy(u => u.Username ?? u.TelegramId.ToString())
+            .Take(Math.Clamp(limit, 1, 50))
+            .ToListAsync(ct);
+    }
+
+    public async Task<bool> SetAdminAsync(long targetTelegramId, bool isAdmin, CancellationToken ct = default)
+    {
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.TelegramId == targetTelegramId, ct);
+        if (user is null)
+        {
+            return false;
+        }
+
+        if (user.IsRoot)
+        {
+            // Root всегда остаётся root + admin
+            user.IsAdmin = true;
+        }
+        else
+        {
+            user.IsAdmin = isAdmin;
+        }
+
+        await _dbContext.SaveChangesAsync(ct);
+        return true;
     }
 }
