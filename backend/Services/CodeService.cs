@@ -54,8 +54,6 @@ public sealed class CodeService(UcodeDbContext dbContext) : ICodeService
 
     public async Task<(bool success, string message, long newBalance)> RedeemAsync(string codeValue, long userId, CancellationToken ct = default)
     {
-        await using var tx = await _dbContext.Database.BeginTransactionAsync(ct);
-
         var now = DateTimeOffset.UtcNow;
         var code = await _dbContext.Codes.FirstOrDefaultAsync(c => c.Value == codeValue, ct);
         if (code is null)
@@ -88,17 +86,14 @@ public sealed class CodeService(UcodeDbContext dbContext) : ICodeService
         try
         {
             await _dbContext.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
             return (true, "Баллы начислены", user.Balance);
         }
         catch (DbUpdateConcurrencyException)
         {
-            await tx.RollbackAsync(ct);
             return (false, "Код уже использован или изменён", user.Balance);
         }
         catch (DbUpdateException)
         {
-            await tx.RollbackAsync(ct);
             return (false, "Не удалось применить код, попробуйте позже", user.Balance);
         }
     }
