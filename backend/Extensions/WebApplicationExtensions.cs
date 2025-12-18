@@ -19,6 +19,22 @@ public static class WebApplicationExtensions
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseWebSockets();
+        app.Use(async (context, next) =>
+        {
+            context.Response.Headers.Remove("X-Frame-Options");
+            context.Response.Headers["Content-Security-Policy"] =
+                "default-src 'self'; " +
+                "base-uri 'self'; " +
+                "form-action 'self'; " +
+                "frame-ancestors 'self' https://web.telegram.org https://t.me https://*.telegram.org; " +
+                "script-src 'self' https://telegram.org 'unsafe-inline'; " +
+                "style-src 'self' 'unsafe-inline'; " +
+                "img-src 'self' data: https:; " +
+                "connect-src 'self' https: wss: ws:; " +
+                "font-src 'self' data:; " +
+                "object-src 'none'";
+            await next();
+        });
         // CSRF middleware отключён, так как фронт работает внутри Telegram WebApp и токен не требуется.
         app.Use(async (context, next) =>
         {
