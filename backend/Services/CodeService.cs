@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using Ucode.Backend.Data;
 using Ucode.Backend.Entities;
+using Ucode.Backend.Models.Responses;
 
 namespace Ucode.Backend.Services;
 
@@ -9,8 +10,9 @@ public interface ICodeService
 {
     Task<Code> GenerateAsync(int points, long adminId, TimeSpan ttl, CancellationToken ct = default);
     Task<(bool success, string message, long newBalance)> RedeemAsync(string codeValue, long userId, CancellationToken ct = default);
-    Task<List<Code>> GetHistoryAsync(int take = 100, CancellationToken ct = default);
+    Task<List<CodeHistoryItemResponse>> GetHistoryAsync(int take = 100, CancellationToken ct = default);
     Task<List<LeaderboardItem>> GetLeaderboardAsync(int take = 100, CancellationToken ct = default);
+    Task<long> GetBalanceAsync(long userId, CancellationToken ct = default);
 }
 
 public sealed class CodeService(UcodeDbContext dbContext) : ICodeService
@@ -80,49 +82,82 @@ public sealed class CodeService(UcodeDbContext dbContext) : ICodeService
         code.Used = true;
         code.UsedBy = userId;
         code.UsedAt = now;
-        user.Balance += code.Points;
         user.UpdatedAt = now;
 
         try
         {
             await _dbContext.SaveChangesAsync(ct);
-            return (true, "Баллы начислены", user.Balance);
+            var newBalance = await GetBalanceAsync(userId, ct);
+            return (true, "Баллы начислены", newBalance);
         }
         catch (DbUpdateConcurrencyException)
         {
-            return (false, "Код уже использован или изменён", user.Balance);
+            var currentBalance = await GetBalanceAsync(userId, ct);
+            return (false, "Код уже использован или изменён", currentBalance);
         }
         catch (DbUpdateException)
         {
-            return (false, "Не удалось применить код, попробуйте позже", user.Balance);
+            var currentBalance = await GetBalanceAsync(userId, ct);
+            return (false, "Не удалось применить код, попробуйте позже", currentBalance);
         }
     }
 
-    public Task<List<Code>> GetHistoryAsync(int take = 100, CancellationToken ct = default)
+    public Task<List<CodeHistoryItemResponse>> GetHistoryAsync(int take = 100, CancellationToken ct = default)
     {
-        return _dbContext.Codes
-            .AsNoTracking()
-            .OrderByDescending(c => c.CreatedAt)
+        var now = DateTimeOffset.UtcNow;
+        return (from code in _dbContext.Codes.AsNoTracking()
+                where code.Used || code.ExpiresAt > now
+                join user in _dbContext.Users.AsNoTracking()
+                    on code.UsedBy equals user.TelegramId into users
+                from user in users.DefaultIfEmpty()
+                orderby code.CreatedAt descending
+                select new CodeHistoryItemResponse
+                {
+                    Id = code.Id,
+                    Value = code.Value,
+                    Points = code.Points,
+                    CreatedAt = code.CreatedAt,
+                    ExpiresAt = code.ExpiresAt,
+                    Used = code.Used,
+                    UsedAt = code.UsedAt,
+                    UsedByTag = code.Used && user != null && !string.IsNullOrWhiteSpace(user.Username)
+                        ? (user.Username.StartsWith("@", StringComparison.Ordinal) ? user.Username : $"@{user.Username}")
+                        : null
+                })
             .Take(take)
             .ToListAsync(ct);
     }
 
     public Task<List<LeaderboardItem>> GetLeaderboardAsync(int take = 100, CancellationToken ct = default)
     {
-        return _dbContext.Users
+        var totals = _dbContext.Codes
             .AsNoTracking()
-            .Where(u => u.Balance > 0)
-            .OrderByDescending(u => u.Balance)
-            .ThenBy(u => u.TelegramId)
+            .Where(c => c.Used && c.UsedBy != null)
+            .GroupBy(c => c.UsedBy!.Value)
+            .Select(g => new { TelegramId = g.Key, Balance = g.Sum(c => (long)c.Points) });
+
+        return (from total in totals
+                join user in _dbContext.Users.AsNoTracking() on total.TelegramId equals user.TelegramId
+                orderby total.Balance descending, user.TelegramId
+                select new LeaderboardItem(
+                    user.TelegramId,
+                    user.Username,
+                    user.FirstName,
+                    user.LastName,
+                    user.PhotoUrl,
+                    total.Balance))
             .Take(take)
-            .Select(u => new LeaderboardItem(
-                u.TelegramId,
-                u.Username,
-                u.FirstName,
-                u.LastName,
-                u.PhotoUrl,
-                u.Balance))
             .ToListAsync(ct);
+    }
+
+    public async Task<long> GetBalanceAsync(long userId, CancellationToken ct = default)
+    {
+        var total = await _dbContext.Codes
+            .AsNoTracking()
+            .Where(c => c.Used && c.UsedBy == userId)
+            .Select(c => (long?)c.Points)
+            .SumAsync(ct);
+        return total ?? 0;
     }
 
     private static string GenerateCode(int length = 5)

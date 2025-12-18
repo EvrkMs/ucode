@@ -64,15 +64,16 @@ namespace Ucode.Backend.Migrations
                     b.HasIndex("Value")
                         .IsUnique();
 
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("UsedBy");
+
                     b.ToTable("Codes");
                 });
 
             modelBuilder.Entity("Ucode.Backend.Entities.User", b =>
                 {
                     b.Property<long>("TelegramId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("Balance")
                         .HasColumnType("bigint");
 
                     b.Property<DateTimeOffset>("CreatedAt")
@@ -123,6 +124,20 @@ namespace Ucode.Backend.Migrations
                     b.HasKey("TelegramId");
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("Ucode.Backend.Entities.Code", b =>
+                {
+                    b.HasOne("Ucode.Backend.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ucode.Backend.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UsedBy")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 #pragma warning restore 612, 618
         }

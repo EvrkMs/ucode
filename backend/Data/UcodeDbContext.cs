@@ -28,9 +28,19 @@ public class UcodeDbContext(DbContextOptions<UcodeDbContext> options) : DbContex
             entity.HasKey(c => c.Id);
             entity.Property(c => c.Value).HasMaxLength(32).IsRequired();
             entity.HasIndex(c => c.Value).IsUnique();
+            entity.HasIndex(c => c.CreatedBy);
+            entity.HasIndex(c => c.UsedBy);
             entity.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(c => c.ExpiresAt).HasDefaultValueSql("now()");
             entity.Property(c => c.Used).IsConcurrencyToken();
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(c => c.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(c => c.UsedBy)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

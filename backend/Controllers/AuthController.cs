@@ -17,12 +17,14 @@ public class AuthController(
     ITelegramAuthValidator validator,
     ITokenService tokenService,
     IUserService userService,
+    ICodeService codeService,
     IOptions<JwtOptions> jwtOptions,
     ILogger<AuthController> logger) : ControllerBase
 {
     private readonly ITelegramAuthValidator _validator = validator;
     private readonly ITokenService _tokenService = tokenService;
     private readonly IUserService _userService = userService;
+    private readonly ICodeService _codeService = codeService;
     private readonly JwtOptions _jwtOptions = jwtOptions.Value;
     private readonly ILogger<AuthController> _logger = logger;
 
@@ -93,6 +95,7 @@ public class AuthController(
             return Unauthorized();
         }
 
+        var balance = await _codeService.GetBalanceAsync(user.TelegramId);
         return Ok(new AuthMeResponse
         {
             User = new AuthUserDto
@@ -103,7 +106,7 @@ public class AuthController(
                 LastName = user.LastName,
                 PhotoUrl = user.PhotoUrl,
                 Role = user.IsRoot ? "root" : user.IsAdmin ? "admin" : "client",
-                Balance = user.Balance
+                Balance = balance
             }
         });
     }

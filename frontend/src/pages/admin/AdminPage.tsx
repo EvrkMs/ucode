@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CodeHistory } from "../../types";
 
 type Props = {
@@ -40,6 +41,9 @@ export function AdminPage({
   rootBusy = false,
   rootError = null
 }: Props) {
+  const [showAllHistory, setShowAllHistory] = useState(false);
+  const visibleHistory = showAllHistory ? history : history.slice(0, 5);
+
   return (
     <section className="card">
       <div className="card-header">
@@ -64,21 +68,28 @@ export function AdminPage({
       {history.length === 0 ? (
         <div className="muted">Пока нет кодов.</div>
       ) : (
-        <ul className="list">
-          {history.map((c) => (
+        <>
+          <ul className="list">
+            {visibleHistory.map((c) => (
             <li key={c.id} className="list-item">
               <div className="list-text">
                 <div className="user-name">
                   {c.value} (+{c.points})
                 </div>
                 <div className="muted">
-                  истекает: {new Date(c.expiresAt).toLocaleString()} |{" "}
-                  {c.used ? `использован (by ${c.usedBy ?? "?"})` : "не использован"}
+                  {!c.used ? `истекает: ${new Date(c.expiresAt).toLocaleString()} | ` : ""}
+                  {c.used ? (c.usedByTag ? `использован (${c.usedByTag})` : "использован") : "не использован"}
                 </div>
               </div>
             </li>
-          ))}
-        </ul>
+            ))}
+          </ul>
+          {!showAllHistory && history.length > 5 ? (
+            <button onClick={() => setShowAllHistory(true)} style={{ marginTop: 12 }}>
+              Показать ещё
+            </button>
+          ) : null}
+        </>
       )}
 
       {isRoot && (

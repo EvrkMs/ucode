@@ -40,8 +40,8 @@ export type CodeHistory = {
   createdAt: string;
   expiresAt: string;
   used: boolean;
-  usedBy?: number;
   usedAt?: string;
+  usedByTag?: string | null;
 };
 
 export type LeaderboardItem = {
