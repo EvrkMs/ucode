@@ -6,6 +6,8 @@ services:
       POSTGRES_USER: ucode
       POSTGRES_PASSWORD: ucode
       POSTGRES_DB: ucode
+      # TZ для Postgres логов (опционально)
+      TZ: Europe/Moscow
     ports:
       - 5433:5432
     volumes:
@@ -22,6 +24,8 @@ services:
     env_file:
       - .env
     environment:
+      # MSK timezone для .NET DateTime.Now
+      - TZ=Europe/Moscow
       - ASPNETCORE_URLS=https://0.0.0.0:5001
     ports:
       - 5001:5001
