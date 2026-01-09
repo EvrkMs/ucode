@@ -10,6 +10,10 @@ import { sendDiag } from "./utils/diag";
 // Lazy loading компонентов для уменьшения initial bundle
 const AdminPage = lazy(() => import("./pages/admin/AdminPage").then(m => ({ default: m.AdminPage })));
 const ClientPage = lazy(() => import("./pages/client/ClientPage").then(m => ({ default: m.ClientPage })));
+// Добавить ЭТОТ импорт ПОСЛЕ ClientPage
+const ParticipantsPage = lazy(() => 
+  import("./pages/ParticipantsPage").then(m => ({ default: m.ParticipantsPage }))
+);
 
 // Динамический импорт WebSocket только когда он нужен
 let ReconnectingWebSocket: typeof import("reconnecting-websocket").default | null = null;
@@ -172,11 +176,11 @@ function App() {
     };
 
     const updateViewport = () => {
-        if (tg?.viewportHeight) {
-          setViewportVar(tg.stableViewportHeight || tg.viewportHeight);
-        } else {
-          setViewportVar(window.innerHeight);
-        }
+      if (tg?.viewportHeight) {
+        setViewportVar(tg.stableViewportHeight || tg.viewportHeight);
+      } else {
+        setViewportVar(window.innerHeight);
+      }
     };
 
     if (tg) {
@@ -573,6 +577,7 @@ function App() {
   };
 
   const isLoadingUser = authInProgress || (!user && authStarted && !token && errors.length === 0);
+  const isActionEnded = new Date(2026, 0, 10) <= new Date(); // 10 января 2026 MSK
 
   if (isLoadingUser) {
     return (
@@ -594,50 +599,60 @@ function App() {
       )}
 
       {user && (
-        <section className="card">
-          <h2>Профиль</h2>
-          <div className="user">
-            {user.photo_url && <img src={user.photo_url} alt="avatar" width={64} height={64} />}
-            <div>
-              <div className="user-name">{displayName(user)}</div>
-              <div className="muted">🍬 {user.balance}</div>
-              <div className="muted">{user.role === "root" ? "Root" : user.role === "admin" ? "Админ" : "Клиент"}</div>
-              {config?.tokenTtlSeconds ? <div className="muted">TTL токена: {config.tokenTtlSeconds}s</div> : null}
+        <>
+          {/* Профиль всегда */}
+          <section className="card">
+            <h2>Профиль</h2>
+            <div className="user">
+              {user.photo_url && <img src={user.photo_url} alt="avatar" width={64} height={64} />}
+              <div>
+                <div className="user-name">{displayName(user)}</div>
+                <div className="muted">🍬 {user.balance}</div>
+                <div className="muted">{user.role === "root" ? "Root" : user.role === "admin" ? "Админ" : "Клиент"}</div>
+                {config?.tokenTtlSeconds ? <div className="muted">TTL токена: {config.tokenTtlSeconds}s</div> : null}
+              </div>
             </div>
-          </div>
-        </section>
-      )}
+          </section>
 
-      {user && (
-        <Suspense fallback={<LoadingPage subtitle="Загрузка компонента..." />}>
-          {user.role === "admin" || user.role === "root" ? (
-            <AdminPage
-              pointsToGenerate={pointsToGenerate}
-              onPointsChange={setPointsToGenerate}
-              onGenerate={generateCode}
-              busy={busy}
-              history={history}
-              wsConnected={wsConnected}
-              isRoot={user.role === "root"}
-              rootSearchQuery={rootSearchQuery}
-              onRootSearchChange={setRootSearchQuery}
-              onRootSearch={searchUsers}
-              rootResults={rootResults}
-              onToggleAdmin={toggleAdmin}
-              rootBusy={rootBusy}
-              rootError={rootError}
-            />
+          {/* ЛОГИКА ПО ДАТЕ */}
+          {isActionEnded ? (
+            /* ПОСЛЕ 10.01.2026 - ТОЛЬКО список участников ВСЕМ */
+            <Suspense fallback={<LoadingPage subtitle="Загрузка списка участников..." />}>
+              <ParticipantsPage leaderboard={leaderboard} wsConnected={wsConnected} />
+            </Suspense>
           ) : (
-            <ClientPage
-              redeemCode={redeemCode}
-              onRedeemCodeChange={setRedeemCode}
-              onRedeem={redeem}
-              busy={busy}
-              leaderboard={leaderboard}
-              wsConnected={wsConnected}
-            />
+            /* ДО 10.01.2026 - обычные страницы по ролям */
+            <Suspense fallback={<LoadingPage subtitle="Загрузка..." />}>
+              {user.role === "admin" || user.role === "root" ? (
+                <AdminPage
+                  pointsToGenerate={pointsToGenerate}
+                  onPointsChange={setPointsToGenerate}
+                  onGenerate={generateCode}
+                  busy={busy}
+                  history={history}
+                  wsConnected={wsConnected}
+                  isRoot={user.role === "root"}
+                  rootSearchQuery={rootSearchQuery}
+                  onRootSearchChange={setRootSearchQuery}
+                  onRootSearch={searchUsers}
+                  rootResults={rootResults}
+                  onToggleAdmin={toggleAdmin}
+                  rootBusy={rootBusy}
+                  rootError={rootError}
+                />
+              ) : (
+                <ClientPage
+                  redeemCode={redeemCode}
+                  onRedeemCodeChange={setRedeemCode}
+                  onRedeem={redeem}
+                  busy={busy}
+                  leaderboard={leaderboard}
+                  wsConnected={wsConnected}
+                />
+              )}
+            </Suspense>
           )}
-        </Suspense>
+        </>
       )}
     </div>
   );
