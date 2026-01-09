@@ -98,6 +98,18 @@ builder.Services.Configure<WebSocketOptions>(options =>
 });
 
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/redeem") &&
+        DateTime.Now.Date >= new DateTime(2026, 1, 10))
+    {
+        context.Response.StatusCode = 410;
+        context.Response.ContentType = "text/plain; charset=utf-8";
+        await context.Response.WriteAsync("Акция закончилась");
+        return;
+    }
+    await next(context);
+});
 
 app.UseForwardedHeaders();
 app.UseApplication();
